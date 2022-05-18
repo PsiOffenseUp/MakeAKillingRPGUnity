@@ -1,0 +1,849 @@
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+using RadHare;
+public abstract class PhysicsHandler : MonoBehaviour
+{
+	//----------------------------------------------------Variable/constant members------------------------------------------------
+
+	//Fields for the editor
+	[SerializeField] public float maxSpeed = 0.3f;
+	[SerializeField] protected float gravity = 0.018f;
+	[SerializeField] protected float maxFallSpeed = 0.44f;
+	[SerializeField] protected float groundFriction = 0.0048f;
+	[SerializeField] protected float airFriction = 0.0034f;
+	[SerializeField, Range(0.0f, 1.0f)] protected float bounciness = 0.5f;
+	[SerializeField] bool isSolid = true;  //Does the object need to check collision with floors and walls?
+	[SerializeField] public ActionState defaultAction;
+	[SerializeField] bool startDirection = true;
+
+	//Physics and movement
+	public bool direction { get; protected set; } //Direction the object is facing. True for right, false for left
+	bool isDirectionLocked; //Whether or not direction can be flipped
+	protected Vector3 velocity; //Object's velocity, which will be added to its position every frame
+	protected Rigidbody2D rigidBody;
+	public bool useFriction { get; protected set; }
+	public bool canMove;
+
+	//Graphics
+	protected SpriteRenderer spriteRenderer; //Reference to this object's sprite renderer
+	protected Animator animator;
+
+	//Collision variables
+	protected BoxCollider2D hitbox; //The main hitbox (i.e. hurtbox) for this object. Used for collision checking
+	ContactFilter2D contactFilter = new ContactFilter2D();
+	RaycastHit2D[] collisions = new RaycastHit2D[12];
+	RaycastHit2D[] raycast = new RaycastHit2D[1]; //Used for extraneous raycasting to make control feel better
+	Vector3 adjustedOffset; //The minimum penetrating vector on a collision
+	public Vector3 groundNormal { get; protected set; } //Normal of the collision for the ground
+	int collisionCount = 0;
+	protected Object collidingObject; //Used for checking collisions. Set every time HandleCollisions() is called.
+	int i;
+	float collisionCheckPos = 0.0f; //Used for collision checking to map the side of a hitbox
+	static float gravityMultiplier = 1.0f;
+	float floatMultiplier; //Used to extend hang time ever so slightly at the top of an object's traveling into the air
+	int collisionLayerIndex;
+	public bool isGrounded { get; private set; }
+	public bool wasGrounded { get; private set; }
+	public bool collisionLeft { get; private set; }
+	public bool collisionRight { get; private set; }
+	public bool collisionAbove { get; private set; }
+	public bool IsSolid { get { return isSolid; } }
+
+	//State variables
+	public enum ActionState { IDLE, STUNNED, RECOVERY, GRABBED, ACTION0, ACTION1, ACTION2, ACTION3, ACTION4 }
+	public ActionState actionState { get; private set; }
+	ActionState nextActionState;
+	protected ActionState lastActionState {get; private set; } //Last action state that the object was in
+	public enum State { NORMAL, INVINCIBLE, INTANGIBLE, THROWN }
+	public State state { get; private set; }
+	State nextState;
+	protected State lastState { get; private set; } //Last state the object was in
+	long stateFinishTime; //Used to tell when a state is up and can be transitioned
+	long actionstateFinishTime; //Used to tell when a state is up and can be transitioned
+	protected long stateTimer { get; private set; } //Frames spent in the current state
+	protected long actionStateTimer { get; private set; } //Frames spent in the current action state
+	bool transitioningState; //Semaphore so that multiple coroutines don't all wait to change the state of this object
+	bool transitioningActionState; //Semaphore so that multiple coroutines don't all wait to change the action state of this object
+
+	//Constants
+	protected const float turnThreshold = 0.016f;
+	const float stopThreshold = 0.025f;
+	const float slowEasing = 0.075f; //Speed at which object will Lerp to max speed if it exceeds its max speed
+	const float gravityBoost = 0.00075f; //Boost to gravity when falling
+	const float floatThreshold = 0.009f; //Minimum speed in either direction (up or down) the object is going to make it hang longer in the air. Used to extend the peak of the curve
+	const float wallThreshold = 0.85f; //Threshold in pixels on slopes to where we'll ignore walls to make walking easier
+	const float wallSpeedThreshold = 0.01f; //Maximum velocity that the object can be going for the above wallThreshold to be applied
+	const float slopeThreshold = 0.475f; //Distance below object to automatically touch ground if we were already touching ground. Used to stick to slopes
+	const float slopeMultiplier = 0.00175f; //Extra speed multiplier gained from going up /down slopes (Slows down if the slope is relatively up)
+	const float bounceThreshold = 0.015f; //Speed at which bouncing doesn't matter anymore
+
+	const int thrownDamagingFrames = 20; //Number of frames after being thrown by the player that an object can do damage
+
+	//--------------------------------------------------------Methods----------------------------------------------------------
+
+	// Start is called before the first frame update
+	protected virtual void Awake()
+    {
+		direction = startDirection;
+		velocity = Vector3.zero;
+		useFriction = true;
+
+		spriteRenderer = GetComponent<SpriteRenderer>();
+		rigidBody = GetComponent<Rigidbody2D>();
+		animator = GetComponent<Animator>();
+		hitbox = gameObject.GetComponent<BoxCollider2D>();
+
+		if (hitbox == null)
+		{
+			Debug.Log(gameObject.name + " was missing a hitbox and was automatically given one");
+			hitbox = gameObject.AddComponent<BoxCollider2D>(); //Create a new hitbox
+			hitbox.size = Vector2.one;
+		}
+
+		if (animator == null)
+			Debug.Log(gameObject.name + " is missing an animator.");
+
+		collisionLayerIndex = LayerMask.NameToLayer("Collision");
+		contactFilter.useTriggers = false;
+		contactFilter.SetLayerMask(Physics2D.GetLayerCollisionMask(gameObject.layer)); //Figure out what objects this one can collide with
+		contactFilter.useLayerMask = true;
+		adjustedOffset = Vector3.zero;
+		groundNormal = Vector3.up;
+
+		isDirectionLocked = wasGrounded = isGrounded = collisionLeft = collisionRight = collisionAbove = false;
+		canMove = true;
+		state = State.NORMAL;
+		nextState = State.NORMAL;
+		TransitionActionState(defaultAction); //Start the object by doing its default action
+		nextActionState = ActionState.IDLE;
+		stateFinishTime = actionstateFinishTime = stateTimer = actionStateTimer = 0;
+		transitioningActionState = transitioningState = false;
+
+		spriteRenderer.flipX = !direction;
+	}
+
+	// Update is called once per frame
+	protected virtual void Update()
+    {
+		//Flip the sprite if the direction is not locked and the object is facing the opposite direction of its velocity
+		if (!isDirectionLocked && (direction && (velocity.x < -turnThreshold) || !direction && velocity.x > turnThreshold))
+			FlipDirection();
+
+		//Call methods depending on the current State and ActionState
+		HandleAction();
+		HandleState();
+
+		//*****************Physics stuff****************
+		if (GameplayManager.paused || actionState == ActionState.GRABBED || !canMove) //Don't move if the game is paused or if this object is grabbed
+			return;
+
+		wasGrounded = isGrounded;
+
+		if (!isGrounded)//Apply gravity when this object is not on the ground and use air friction
+		{
+			//Set the float multiplier for extending hang time
+			if (velocity.x < floatThreshold && velocity.x > -floatThreshold)
+				floatMultiplier = 0.85f;
+			else
+				floatMultiplier = 1.0f;
+
+			velocity += Vector3.down * gravity * gravityMultiplier * floatMultiplier;
+
+			//If this object should use friction and is above a certain speed, apply friction
+			if (velocity.x > 1.025f * airFriction || velocity.x < -1.025f * airFriction)
+			{
+				if (useFriction)
+					velocity.x -= Mathf.Sign(velocity.x) * airFriction;
+			}
+			else if (useFriction)
+				velocity.x = 0.0f;
+		}
+		else
+		{
+			//If this object should use friction and is above a certain speed, apply friction
+			if (velocity.x > 1.05f * groundFriction || velocity.x < -1.05f * groundFriction)
+			{
+				if (groundNormal.y < 0.98f && groundNormal.y > -0.98f)
+					velocity.x += slopeMultiplier * Mathf.Sign(groundNormal.x) * (1.0f - Mathf.Abs(groundNormal.x)); //Add some extra speed based on the steepness of the slope the object is on
+
+				if (useFriction)
+					velocity.x -= Mathf.Sign(velocity.x) * groundFriction;
+			}
+			else if (useFriction)
+				velocity.x = 0.0f;
+		}
+
+		//Don't let the object go too fast
+		if (velocity.y < -maxFallSpeed)
+			velocity.y = -maxFallSpeed;
+
+		if (velocity.x < -maxSpeed)
+			velocity.x = -maxSpeed;
+		else if (velocity.x > maxSpeed)
+			velocity.x = maxSpeed;
+
+		if ((velocity.x < stopThreshold && velocity.x > -stopThreshold) && useFriction) //Stop the object from jittering around as it slows
+			velocity.x = 0.0f;
+
+		if (velocity.y < 0.0f && !isGrounded) //If the object is going downwards in the air, boost how fast it falls
+			velocity.y -= gravityMultiplier * gravityBoost;
+
+		//Update position based on the current velocity
+		transform.position += velocity;
+
+		//Do collision checking
+		isGrounded = collisionLeft = collisionRight = collisionAbove = false;
+		groundNormal = Vector3.up; //Set the ground normal to be straight upwards by default
+		collisionCount = hitbox.Cast(velocity.normalized, contactFilter, collisions, velocity.magnitude + 0.01f);
+		for (i = 0; i < collisionCount; i++)
+			HandleCollision(collisions[i]);
+
+		if (wasGrounded && !isGrounded && velocity.y <= 0.0f) //If we were grounded, but aren't on this frame, check if there is ground relatively close to go to. Basically, warps to slope to make better
+		{
+			collisionCount = rigidBody.Cast(Vector3.down, contactFilter, collisions, slopeThreshold);
+			for (i = 0; i < collisionCount; i++)
+			{
+				if (collisions[i].transform.gameObject.layer == collisionLayerIndex)
+				{
+					//transform.position = Vector3.Lerp(transform.position, new Vector3(transform.position.x, collisions[i].point.y + hitbox.bounds.extents.y, transform.position.z), 0.45f);
+					transform.position = new Vector3(transform.position.x, collisions[i].point.y + hitbox.bounds.extents.y, transform.position.z);
+					isGrounded = true;
+				}
+			}
+		}
+
+		if ((collisionLeft || collisionRight) && isGrounded) //Stop horizontal momentum if running into a wall on the ground
+			velocity.x *= 0.01f; //Reduce the object's horizontal velocity greatly
+
+		//Handle bouncing while thrown
+		if (state == State.THROWN)
+		{
+			if ((collisionAbove && velocity.y > bounceThreshold) || (isGrounded && velocity.y < -bounceThreshold)) //Vertical bouncing
+				velocity.y *= bounciness - 1.0f;
+			else if (collisionLeft || collisionRight)
+				velocity.x *= bounciness - 1.0f;
+		}
+		else if (!wasGrounded && isGrounded) //If this is the frame that the object landed on the ground, call OnLanding()
+			OnLanding();
+	}
+
+	#region Collisions
+	//*****Collision with other objects******
+	/// <summary>
+	/// Called whenever an object collides with another object. Only collision with non-level collision layers gets called to here. Make sure to call the base version before normal code, as collidingObject os set here
+	/// </summary>
+	/// <param name="collision"></param>
+	protected virtual void HandleCollision(RaycastHit2D collision)
+	{
+		collisionCheckPos = 0.0f;
+		if (!isSolid)// || velocity == Vector3.zero) //If this object is not solid or not moving, don't both having it check regular collision
+			return;
+
+		if (collision.transform.gameObject.layer == GameplayManager.collisionLayer)
+		{ 
+			//Normal of collision is normal to the other object's collider. So, if this is the ground, the normal will be roughly upwards. Since it is normalized, this means the y value will be relatively big.
+			//Since y is the sine and x is the cos, but a 45 degree angle would have x and y of sqrt(2)/2 = 0.7071, 30 degree = 0.866, 60 degree = 0.5
+			//But, since we are taking the normal, we'll get -y and x and a swapping of positions
+
+			//Handle y collisions first
+			adjustedOffset = Vector3.zero;
+
+			if (isCollisionBelow(collision.normal))
+			{
+				isGrounded = true;
+				collisionCheckPos = transform.position.y - hitbox.bounds.extents.y + hitbox.offset.y; //Bottom of the object's hitbox
+				groundNormal = collision.normal; //If this collision counts as being on the ground, save it as the ground normal
+				if (collisionCheckPos< collision.point.y) //If the object goes below the point of collision, adjust it
+					adjustedOffset.y = collision.point.y - collisionCheckPos;
+			}
+			else if (isCollisionAbove(collision.normal))
+			{
+				collisionAbove = true;
+				collisionCheckPos = transform.position.y + hitbox.bounds.extents.y + hitbox.offset.y; //Top of the object's hitbox
+				if (collisionCheckPos > collision.point.y) //If the object goes above the point of collision, adjust it
+				{
+					//If there is space where the player is going is open, warp the player around the ceiling (avoid heabonking)
+					if (rigidBody.Cast(Mathf.Sign(velocity.x) * Vector2.right, contactFilter, raycast, Mathf.Abs(velocity.x)) == 0)
+						adjustedOffset.x += velocity.x;
+					else //Otherwise, move the player out of the ceiling
+					{
+						adjustedOffset.y = collision.point.y - collisionCheckPos;
+						velocity.y *= 0.02f;
+					}
+				}
+				else if (velocity.y > 0.0f) //If player is going upwards, stop from completely headbonking, and slide along the ceiling a bit
+				{
+					velocity.x += 0.05f * velocity.y;
+					velocity.y *= 0.02f;
+				}
+
+			}
+
+			//Consider walls to be slopes of greater than about 70 degrees
+			if (isCollisionLeft(collision.normal))
+			{
+				collisionCheckPos = transform.position.x - hitbox.bounds.extents.x + hitbox.offset.x; //Left of the object's hitbox
+				//Find the distance to the top of this wall. Since we are using Tiled, this will be the position of the object. Note that the Tiled importer autm=omatically makes the position of the object the top left
+				//and thus the max bounds are the actual size of the collider
+				float distToTop = collision.transform.position.y - (transform.position.y - hitbox.bounds.extents.y);
+				if (distToTop <= wallThreshold && velocity.y < wallSpeedThreshold && velocity.x < -wallSpeedThreshold) //If the top of the collision is within a certain distance, move on top of it
+					adjustedOffset.y += distToTop;
+				else
+				{
+					collisionLeft = true;
+					if (collisionCheckPos < collision.point.x) //If the object goes left of the point of collision, adjust it
+						adjustedOffset.x += collision.point.x - collisionCheckPos;
+				}
+
+			}
+			else if (isCollisionRight(collision.normal))
+			{
+				collisionCheckPos = transform.position.x + hitbox.bounds.extents.x + hitbox.offset.x; //Right of the object's hitbox
+				float distToTop = collision.transform.position.y - (transform.position.y - hitbox.bounds.extents.y);
+				if (distToTop <= wallThreshold && velocity.y < wallSpeedThreshold && velocity.x > wallSpeedThreshold) //If the top of the collision is within a certain distance, move on top of it
+					adjustedOffset.y += distToTop;
+				else
+				{
+					collisionRight = true;
+					if (collisionCheckPos > collision.point.x) //If the object goes right of the point of collision, adjust it
+						adjustedOffset.x += collision.point.x - collisionCheckPos;
+				}
+		
+				collisionCheckPos = collision.transform.position.y + collision.collider.bounds.max.y - (transform.position.y - hitbox.bounds.extents.y); //Reuse collisionCheckPos to see how far it is to the top of this collision from the bottom of the object
+			}
+
+			//Apply the adjusted value to the position
+			transform.position += adjustedOffset;
+
+			collidingObject = null;
+		}
+		else if (collision.transform.gameObject.layer == GameplayManager.oneWayLayer)  //If this is a one way collision object, only check from the top
+		{
+			if (isCollisionBelow(collision.normal) && velocity.y <= 0.02f) //Only do collision if going downwards
+			{
+				collisionCheckPos = transform.position.y - hitbox.bounds.extents.y;
+				//If the object goes below the point of collision, adjust it, but only if the feet of the object are above the bottom of the one way
+				if (collisionCheckPos > collision.transform.position.y - ((BoxCollider2D)collision.collider).bounds.extents.y)
+				{
+					//If the object was not grounded last frame, call he OnLanding() method
+					transform.position += Vector3.up * (collision.point.y - collisionCheckPos);
+					isGrounded = true;
+					velocity.y = -gravityMultiplier * gravity * collision.normal.x;
+				}
+			}
+			collidingObject = null;
+		}
+		else
+			collidingObject = collision.transform.gameObject.GetComponent<Object>(); //Get the object collided with if it wasn't collision
+	}
+
+
+	//********************Helper methods*********************
+
+	protected bool isCollisionBelow(Vector2 normal) { return normal.y >= 0.5f; }
+	protected bool isCollisionAbove(Vector2 normal) { return normal.y <= -0.5f; }
+	protected bool isCollisionRight(Vector2 normal) { return normal.x < -0.74f; }
+	protected bool isCollisionLeft(Vector2 normal) { return normal.x > 0.74f; }
+
+	#endregion
+
+	#region Flipping object/ sprite
+	/// <summary>Flips the object's sprite</summary>
+	public virtual void FlipDirection() 
+	{
+		if (isDirectionLocked)
+			return;
+
+		spriteRenderer.flipX = direction;
+		direction = !direction;
+	}
+
+	protected void SetDirection(bool new_direction) { direction = new_direction; }
+
+	/// <summary>Flips the object's sprite and velocity</summary>
+	public void FlipObject() 
+	 {
+		direction = !direction;
+		spriteRenderer.flipX = !direction;
+		velocity *= -1.0f;
+	}
+	#endregion
+
+	#region Effects
+	/// <summary> Plays the particle effect at this object's position </summary>
+	/// <param name="effect"></param>
+	public void PlayEffect(ParticleSystem effect) { Instantiate(effect).transform.position = this.transform.position; }
+
+	/// <summary> Plays the particle effect at this object's postiion, but with an offset. </summary>
+	/// <param name="effect"></param>
+	/// <param name="offset"></param>
+	public void PlayEffect(ParticleSystem effect, Vector3 offset) { Instantiate(effect).transform.position = this.transform.position + offset; }
+
+	/// <summary> Instatiates the particle effect from the "effects/" asset folder with the given resource_path. </summary>
+	/// <param name="resource_path"></param>
+	public void PlayEffect(string resource_path) { Instantiate(Resources.Load<ParticleSystem>("effects/" + resource_path)); }
+
+	/// <summary> Instatiates the particle effect from the "effects/" asset folder with the given resource_path with the given offset from the object's origin. </summary>
+	public void PlayEffect(string resource_path, Vector3 offset) { Instantiate(Resources.Load<ParticleSystem>("effects/" + resource_path)).transform.position = this.transform.position + offset; }
+
+	#endregion
+
+	#region Knockback/ Hitstun
+
+	public void TakeKnockback(Vector2 direction, float magnitude)
+	{
+		direction.Normalize();
+		velocity = magnitude * direction;
+	}
+
+	public void Bounce() { this.velocity = Vector2.Dot(this.velocity, Vector2.right) * this.velocity.normalized; } 
+
+	/// <summary> Puts this object in hitstun for the given number of frames. Hitstun will slow the object's speed and animation </summary>
+	/// <param name="frames"></param>
+	public void TakeHitstun(int frames) { StartCoroutine(DoHitstun(frames)); }
+
+	//Actual hitstun coroutine
+	protected IEnumerator DoHitstun(int frames)
+	{
+		//Preserve current velocity and freeze the object
+		Vector3 oldVelocity = this.velocity;
+		velocity = Vector3.zero;
+		float oldGravity = gravity;
+		gravity = 0.0f;
+		canMove = false;
+
+		long endFrame = GameplayManager.frameTimer + frames;
+		while (GameplayManager.frameTimer < endFrame) //Wait for the given number of frames
+			yield return null;
+
+		//Restore velocity and unfreeze
+		gravity = oldGravity;
+		velocity = oldVelocity;
+		canMove = true;
+	}
+
+	#endregion
+
+	#region Dealing with directions
+	/// <summary> Locks the object so that it cannot turn around</summary>
+	public void LockDirection() { isDirectionLocked = true; }
+	/// <summary> Unlocks the object so that it can turn its sprite around based on its velocity</summary>
+	public void UnlockDirection() { isDirectionLocked = false; }
+	/// <summary>
+	/// Locks the object to face its current direction until the time is up, regardless of its velocity
+	/// </summary>
+	/// <param name="time"></param>
+	/// <returns></returns>
+	public IEnumerator LockDirectionForTime(float time)
+	{
+		isDirectionLocked = true;
+		yield return new WaitForSeconds(time);
+		isDirectionLocked = false;
+	}
+
+	/// <summary>
+	/// Locks the object for the given time to face the given direction (true is right, false is left)
+	/// </summary>
+	/// <param name="time"></param>
+	/// <param name="direction"></param>
+	public void LockDirectionForTime(float time, bool direction)
+	{
+		this.direction = direction;
+		StartCoroutine(LockDirectionForTime(time));
+	}
+
+	/// <summary> Gets this object's direction as a value. 1 for right and -1 for left. </summary>
+	public float GetDirectionValue() { if (this.direction) return 1.0f; else return -1.0f; }
+
+
+	#endregion
+
+	#region Physics methods
+	public void AddVelocity(Vector2 velocity){ velocity += velocity; }
+	public void AddVelocity(Vector3 velocity) {this.velocity += velocity; }
+	public void AddHorizontalVelocity(float velocity) { this.velocity += Vector3.right*velocity; }
+	public void AddVerticalVelocity(float velocity) { this.velocity += Vector3.up * velocity; }
+	public void SetHorizontalVelocity(float velocity) { this.velocity.x = velocity; }
+	public void SetVerticalVelocity(float velocity) { this.velocity.y = velocity; }
+	public void SetVelocity(Vector3 velocity) { this.velocity = velocity; }
+	public void SetVelocity (float xVel, float yVel) { this.velocity.x = xVel; this.velocity.y = yVel; }
+	public float GetHorizontalVelocity() { return this.velocity.x; }
+	public float GetVerticalVelocity() { return this.velocity.y; }
+	public Vector3 GetVelocity() { return this.velocity; }
+	public void SetGravity(float gravity) { this.gravity = gravity; }
+	public void IgnoreFriction() { this.useFriction = false; }
+	public void UseFriction() { this.useFriction = true; }
+	public void SetMaxSpeed(float newSpeed) { this.maxSpeed = newSpeed; }
+	public static void SetGravityMultiplier(float multiplier) { gravityMultiplier = multiplier; }
+	#endregion
+
+	#region State methods
+
+	/// <summary>
+	/// Called every frame to handle the current state
+	/// </summary>
+	public void HandleState()
+	{
+		stateTimer++; //Make the state timer go up
+	}
+
+	//-----------------Virtual methods for each state------------------
+
+	/// <summary> Called whenever a new State is transitioned to. Use to initialize/change variables for a given state. The base class version handles transitioning out of the thrown state. </summary>
+	protected virtual void OnStateChange() 
+	{
+		if (state == State.THROWN) //If the object is entering thrown state
+			StartCoroutine(SetStateAfterFrames(State.NORMAL, thrownDamagingFrames));
+	}
+
+	protected void TransitionState(State new_state) 
+	{
+		if (new_state != state) //Reset the state timer if we're 
+			stateTimer = 0;
+
+		this.lastState = this.state;
+		this.state = new_state;
+		OnStateChange();
+	}
+
+	/// <summary>
+	/// Waits for the given amount of frames before setting the new_state. If another call to this method is made, will overwrite the current state being waited for.
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="frames"></param>
+	/// <returns></returns>
+	protected IEnumerator SetStateAfterFrames(State new_state, int frames)
+	{
+		stateFinishTime = GameplayManager.frameTimer + frames;
+		nextState = new_state;
+
+		if (!transitioningState) //If another coroutine is not already working on transitioning
+		{
+			transitioningState = true;
+			while(GameplayManager.frameTimer < stateFinishTime) //Wait until we reach the end of the state timer
+				yield return null; //Don't do anything until the next frame
+
+			//Once we've reached the end of the state timer, set our state
+			TransitionState(nextState);
+			transitioningState = false; //Set the flag that it is once again fine to transition
+		}
+
+		yield return null; //Finished by returning nothing
+	}
+
+	/// <summary>
+	/// Waits for the given amount of frames before setting the new_state. If another call to this method was made before, does not overwrite
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="frames"></param>
+	/// <returns></returns>
+	public void SetStateAfterFramesNoOverwrite(State next_state, int frames)
+	{
+		if (!transitioningState) //If another coroutine is not already working on transitioning
+			StartCoroutine(SetStateAfterFrames(next_state, frames));
+	}
+
+	/// <summary>
+	/// Sets this object to the given state until the amount of frames has passed, then sets to the return_state. If this is called while another one is waiting, overwrites that previous call.
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="timer"></param>
+	protected void SetStateForFrames(State new_state, int frames, State return_state = State.NORMAL)
+	{
+		TransitionState(new_state);
+		StartCoroutine(SetStateAfterFrames(return_state, frames));
+	}
+
+	/// <summary>
+	/// Sets a state for the given amount of time, then afterwards sets to the finish state
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="time"></param>
+	/// <param name="finish_state"></param>
+	protected void SetStateForTime(State new_state, float time, State finish_state = State.NORMAL)
+	{
+		TransitionState(new_state);
+		StartCoroutine(SetStateAfterTime(finish_state, time));
+	}
+
+	/// <summary>
+	/// Sets a state after the timer has passed, in seconds
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="time"></param>
+	/// <returns></returns>
+	protected IEnumerator SetStateAfterTime(State new_state, float time)
+	{
+		yield return new WaitForSeconds(time);
+		TransitionState(new_state); //Reset the player's state to normal
+	}
+
+	/// <summary>
+	/// Returns the object to a normal state after the timer is up.
+	/// </summary>
+	/// <param name="timer"></param>
+	/// <returns></returns>
+	protected IEnumerator ReturnToNormal(float timer)
+	{
+		yield return new WaitForSeconds(timer);
+
+		TransitionState(State.NORMAL); //Reset the player's state to normal
+		spriteRenderer.enabled = true; //Enable the sprite renderer, in case it may be off when we're done
+	}
+
+	public void GiveInvincibility(float invincibility_length)
+	{
+		TransitionState(State.INVINCIBLE);
+		StartCoroutine(ReturnToNormal(invincibility_length)); //Return to normal after the invicibility duration is up
+	}
+
+	public void GiveIntagibility(float intangibility_length)
+	{
+		TransitionState(State.INTANGIBLE);
+		StartCoroutine(ReturnToNormal(intangibility_length)); //Return to normal after the invicibility duration is up
+	}
+
+	/// <summary> Overwrites the currently queued next State to be the one given. If no States are queued up to transition, this does nothing </summary>
+	/// <param name="actionState"></param>
+	protected void OverwriteNextState(State state) { nextState = state; }
+
+	#endregion
+
+	#region ActionState methods
+	/// <summary> Used to handle actions that the object is currently in. Use actionState to check what the current state is. The base class version increments the actionStateTimer and handles a default recovery state. </summary>
+	protected virtual void HandleAction()
+	{
+		actionStateTimer++;
+
+		if (actionState == ActionState.RECOVERY)
+		{
+			TransitionActionState(defaultAction); //Transition back to what this object does by default
+			TransitionState(State.NORMAL);
+		}
+
+		/*
+		switch (actionState)
+		{
+			case ActionState.IDLE:
+				break;
+			case ActionState.STUNNED:
+				break;
+			case ActionState.RECOVERY:
+				break;
+			case ActionState.GRABBED:
+				break;
+			case ActionState.ACTION0:
+				break;
+			case ActionState.ACTION1:
+				break;
+			case ActionState.ACTION2:
+				break;
+			case ActionState.ACTION3:
+				break;
+			case ActionState.ACTION4:
+				break;
+		}
+		*/
+	}
+
+	/// <summary> Called on the first frame that this object hits the ground. By default, this resets the object's fall speed </summary>
+	protected virtual void OnLanding() 
+	{
+		velocity.y = -gravityMultiplier * gravity * (groundNormal.x + 0.02f); //Make the object fall a little bit, but reset fall speed when on the ground
+	}
+
+	/// <summary> Called whenever a new ActionState is transitioned to. Use to initialize/change variables for a given action state. </summary>
+	protected virtual void OnActionStateChange() {}
+
+	//*****Action states******
+	/// <summary> Changes the current action state to the new state given. </summary>
+	/// <param name="new_state"></param>
+	public void TransitionActionState(ActionState new_state)
+	{
+		if (new_state != actionState) //Reset the state timer if we're 
+			actionStateTimer = 0;
+
+		this.lastActionState = this.actionState;
+		this.actionState = new_state;
+		OnActionStateChange();
+	}
+
+	/// <summary>
+	/// Waits for the given amount of frames before setting the new_state. If another call to this method is made, will overwrite the current state being waited for.
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="frames"></param>
+	/// <returns></returns>
+	public IEnumerator SetActionStateAfterFrames(ActionState next_state, int frames)
+	{
+		actionstateFinishTime = GameplayManager.frameTimer + frames;
+		nextActionState = next_state;
+		if (!transitioningActionState) //If another coroutine is not already working on transitioning
+		{
+			transitioningActionState = true;
+			while (GameplayManager.frameTimer < actionstateFinishTime) //Wait until we reach the end of the state timer
+				yield return null; //Don't do anything until the next frame
+
+			//Once we've reached the end of the state timer, set our state
+			TransitionActionState(nextActionState);
+			transitioningActionState = false; //Set the flag that it is once again fine to transition
+		}
+
+		yield return null; //Finished by returning nothing
+	}
+
+	/// <summary>
+	/// Waits for the given amount of frames before setting the new_state. If another call to this method was made before, does not overwrite
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="frames"></param>
+	/// <returns></returns>
+	public void SetActionStateAfterFramesNoOverwrite(ActionState next_state, int frames)
+	{
+		if (!transitioningActionState) //If another coroutine is not already working on transitioning
+			StartCoroutine(SetActionStateAfterFrames(next_state, frames));
+	}
+
+	/// <summary>
+	/// Sets this object to the given state until the amount of frames has passed, then sets to the return_state. If this is called while another one is waiting, overwrites that previous call.
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="timer"></param>
+	public void SetActionStateForFrames(ActionState new_state, int frames, ActionState return_state = ActionState.IDLE)
+	{
+		TransitionActionState(new_state);
+		StartCoroutine(SetActionStateAfterFrames(return_state, frames));
+	}
+
+	/// <summary>
+	/// Sets this object to the given action state until the amount of frames has passed, then sets to the return_state. If this is called while another one is waiting, will not overwrite with return_state.
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="timer"></param>
+	public void SetActionStateForFramesNoOverwrite(ActionState new_state, int frames, ActionState return_state = ActionState.IDLE)
+	{
+		TransitionActionState(new_state);
+		SetActionStateAfterFramesNoOverwrite(return_state, frames);
+	}
+
+	/// <summary>
+	/// Sets an action state for the given amount of time, then afterwards sets to the finish state
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="time"></param>
+	/// <param name="finish_state"></param>
+	protected void SetActionStateForTime(ActionState new_state, float time, ActionState finish_state = ActionState.IDLE)
+	{
+		TransitionActionState(new_state);
+		StartCoroutine(SetActionStateAfterTime(finish_state, time));
+	}
+
+	/// <summary>
+	/// Sets a state after the timer has passed, in seconds
+	/// </summary>
+	/// <param name="new_state"></param>
+	/// <param name="time"></param>
+	/// <returns></returns>
+	protected IEnumerator SetActionStateAfterTime(ActionState new_state, float time)
+	{
+		yield return new WaitForSeconds(time);
+
+		TransitionActionState(new_state); //Reset the player's state to normal
+	}
+
+	/// <summary>Overwrites the currently queued next ActionState to be the one given. If no ActionStates are queued up to transition, this does nothing </summary>
+	/// <param name="actionState"></param>
+	public void OverwriteNextActionState(ActionState actionState) { nextActionState = actionState; }
+
+	#endregion
+
+	#region Animation methods
+	/// <summary>  Plays an animation, while making the object intangible for the duration of the animation and stopping it's movement</summary>
+	/// <param name="animation_name"></param>
+	/// <returns></returns>
+	protected IEnumerator PlayAnimationIntangible(string animation_name, long frames = 20)
+	{
+		animator.Play(animation_name);
+		TransitionState(State.INTANGIBLE);
+		canMove = false;
+		animator.Play(animation_name);
+		while (frames > 0)
+		{
+			frames--;
+			yield return null; //Do nothing
+		}
+
+		TransitionState(State.NORMAL);
+		canMove = true;
+	}
+
+	/// <summary> Plays the animation with the given name. </summary>
+	/// <param name="name"></param>
+	public void PlayAnimation(string name) { animator.Play(name); }
+
+	#endregion
+
+	#region Hitbox class
+
+	/// <summary> Hitbox class, used for creating hitboxes and hurtboxes for objects </summary>
+	[System.Serializable] public class Hitbox
+	{
+		public enum Type { HURTBOX, ENEMY, FRIENDLY }
+		[SerializeField] public Type type;
+		public BoxCollider2D collider;
+		public enum Affinity { NONE, FIRE, ELECTRIC, ICE, WIND, EXPLOSION }
+		[SerializeField] public Affinity affinity;
+
+		public Hitbox ()
+		{
+			type = Type.ENEMY;
+			collider = new BoxCollider2D();
+		}
+
+		public Hitbox(Type type, BoxCollider2D collider)
+		{
+			this.type = type;
+			this.collider = collider;
+		}
+
+		/// <summary> Constructor for making a new hitbox. </summary>
+		public Hitbox(Vector2 size, Vector2 position, Type type = Type.ENEMY, Affinity affinity = Affinity.NONE)
+		{
+			this.type = type;
+			this.affinity = affinity;
+			collider = new BoxCollider2D();
+			collider.size = size;
+			collider.transform.position = position;
+		}
+
+		/// <summary> Creates a new hitbox with the given width and height at the given offset for its parent  </summary>
+		public Hitbox(float width, float height, Vector2 position) : this(new Vector2(width, height), position) { }
+	}
+	#endregion
+
+	protected IEnumerator DoActionAfterFrames(long frames, System.Action action)
+	{
+		long endFrame = GameplayManager.frameTimer + frames; //Get the frame in which to finish waiting
+		while (GameplayManager.frameTimer < endFrame) //Do nothing. Wait until we reach the target frame
+			yield return null;
+
+		action(); //Call the action
+	}
+
+	protected IEnumerator DoActionAfterTime(float time, System.Action action)
+	{
+		yield return new WaitForSeconds(time);
+		action(); //Call the action
+	}
+
+	/// <summary> Does the given action after the current animation finishes playing </summary>
+	/// <param name="action"></param>
+	protected void DoActionAfterCurrentAnimationFinishes(System.Action action) 
+	{
+		AnimatorStateInfo currentState = animator.GetCurrentAnimatorStateInfo(0);
+		StartCoroutine(DoActionAfterTime(currentState.length / currentState.speed, action)); 
+	}
+}
+
