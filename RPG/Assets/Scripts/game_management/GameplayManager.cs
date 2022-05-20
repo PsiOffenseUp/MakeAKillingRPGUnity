@@ -23,6 +23,7 @@ public class GameplayManager : MonoBehaviour
 	public static UIManager uiManager { get; private set; }
 	public static DialogueManager dialogueManager { get; private set; }
 	public static DebugManager debugManager { get; private set; }
+	public static Clock clock { get; private set; }
 
 	//Save data and settings (things to save to files)
 	public static BoogalooGame.Save saveData { get; private set; }
@@ -56,6 +57,7 @@ public class GameplayManager : MonoBehaviour
 			uiManager = GetComponent<UIManager>();
 			dialogueManager = GetComponent<DialogueManager>();
 			debugManager = GetComponent<DebugManager>();
+			clock = GetComponent<Clock>();
 			gameplayManager = this;
 
 			DontDestroyOnLoad(this.gameObject); //Have the GameplayManager persist across scenes

@@ -47,8 +47,8 @@ public class AnimationHandler
     [SerializeField] AnimationMetadata[] animations;
     [SerializeField] SpriteRenderer spriteRenderer;
     [SerializeField] bool playAnimation = true;
+    [SerializeField] Material material;
     double timePassed;
-    int currentFrame; //Used for later calculations
 
     public void Initialize()
     {

@@ -111,8 +111,10 @@ namespace BoogalooGame
 	[System.Serializable] public class Save
 	{
 		[XmlElement("game_flags")] public Flags gameFlags;
+		[XmlElement("hour")] public uint hour;
+		[XmlElement("minute")] public uint minute;
+		[XmlElement("time_passage")] public uint timeSpeed;
 		public SaveMetadata metadata;
-
 		//----------------------------Methods---------------------------
 
 		#region Reading and writing files
@@ -164,7 +166,6 @@ namespace BoogalooGame
 		public bool GetFlag(Flags.GameFlag flag) { return gameFlags.GetFlag(flag); }
 
 		#endregion
-
 
 		#region Helper methods
 

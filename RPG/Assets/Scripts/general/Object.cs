@@ -27,7 +27,7 @@ public abstract class Object : MonoBehaviour
 	protected virtual void Update()
 	{
 		animationHandler.OnUpdate(); //Update any animations
-		transform.LookAt(GameplayManager.mainCamera.transform); //Bilboard sprites
+
 		actionTimer++;
 		stateTimer++;
 

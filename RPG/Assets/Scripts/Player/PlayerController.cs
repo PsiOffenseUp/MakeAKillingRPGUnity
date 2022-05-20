@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class PlayerController : Object
+public class PlayerController : TimeAffectedObject
 {
     //Used to figure out which direction the player is facing for animations
     public enum Direction { LEFT, RIGHT, BACK, FORWARD}
@@ -60,8 +60,7 @@ public class PlayerController : Object
                     if (direction != Direction.LEFT) //If not already considered facing left, update
                     {
                         direction = Direction.LEFT;
-                        animationHandler.ChangeAnimation("walk_h");
-                        animationHandler.SetHorizontalFlip(false);
+                        animationHandler.ChangeAnimation("walk_l");
                     }
                 }
                 else //Moving right
@@ -69,8 +68,7 @@ public class PlayerController : Object
                     if (direction != Direction.RIGHT) //If not already considered facing left, update
                     {
                         direction = Direction.RIGHT;
-                        animationHandler.ChangeAnimation("walk_h");
-                        animationHandler.SetHorizontalFlip(true);
+                        animationHandler.ChangeAnimation("walk_r");
                     }
                 }
             }
@@ -115,12 +113,10 @@ public class PlayerController : Object
                     switch(direction)
                     {
                         case Direction.LEFT:
-                            animationHandler.ChangeAnimation("idle_h");
-                            animationHandler.SetHorizontalFlip(false);
+                            animationHandler.ChangeAnimation("idle_l");
                             break;
                         case Direction.RIGHT:
-                            animationHandler.ChangeAnimation("idle_h");
-                            animationHandler.SetHorizontalFlip(true);
+                            animationHandler.ChangeAnimation("idle_r");
                             break;
                         case Direction.FORWARD:
                             animationHandler.ChangeAnimation("idle_d");
@@ -135,12 +131,10 @@ public class PlayerController : Object
                 switch (direction)
                 {
                     case Direction.LEFT:
-                        animationHandler.ChangeAnimation("walk_h");
-                        animationHandler.SetHorizontalFlip(false);
+                        animationHandler.ChangeAnimation("walk_l");
                         break;
                     case Direction.RIGHT:
-                        animationHandler.ChangeAnimation("walk_h");
-                        animationHandler.SetHorizontalFlip(true);
+                        animationHandler.ChangeAnimation("walk_r");
                         break;
                     case Direction.FORWARD:
                         animationHandler.ChangeAnimation("walk_d");
