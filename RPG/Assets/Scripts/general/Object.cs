@@ -7,13 +7,25 @@ using UnityEngine;
 /// </summary>
 public abstract class Object : MonoBehaviour
 {
+	//Used to figure out which direction the object is facing for animations
+	public enum Direction { LEFT, RIGHT, BACK, FORWARD }
+	protected Direction direction = Direction.RIGHT;
+
 	public Vector3 initialPosition { get; private set; }
 
 	static Dictionary<GameObject, Object> objectDict = new Dictionary<GameObject, Object>();
 	[SerializeField] protected AnimationHandler animationHandler;
+	[SerializeField] protected EffectDictionary effectDict;
 
-    #region Unity Method Overrides
-    protected virtual void Awake()
+	//Collisions / checking the ground
+	protected CapsuleCollider collider { get; private set; }
+	protected float raycastOffset { get; private set; }
+	protected const float raycastDist = 0.1f;
+	protected bool isGrounded { get; private set;}
+	protected bool wasGrounded { get; private set;}
+
+	#region Unity Method Overrides
+	protected virtual void Awake()
 	{
 		initialPosition = transform.position;
 
@@ -22,12 +34,24 @@ public abstract class Object : MonoBehaviour
 		this.stateTimer = this.actionTimer = 0;
 
 		animationHandler.Initialize(); //Initialize the animator
+		effectDict.Initialize(); //Initialize the effects dictionary
+
+		collider = GetComponent<CapsuleCollider>();
+		raycastOffset = collider.height - 0.03f;
+		isGrounded = false;
 	}
 
 	protected virtual void Update()
 	{
+		//Handle collision
+		wasGrounded = isGrounded;
+		isGrounded = Physics.Raycast(transform.position + Vector3.down * raycastOffset, Vector3.down, raycastDist, GameplayManager.collisionLayer);
+		if (!wasGrounded && isGrounded) //If this is the first frame on the ground, call the OnLanding event method
+			OnLanding();
+
 		animationHandler.OnUpdate(); //Update any animations
 
+		//Handle states and actions
 		actionTimer++;
 		stateTimer++;
 
@@ -107,6 +131,7 @@ public abstract class Object : MonoBehaviour
 	#endregion
 
 	#region ***************** Other Methods *****************
-
+	//Called on the first frame when an object hits the ground
+	protected virtual void OnLanding() { }
 	#endregion
 }

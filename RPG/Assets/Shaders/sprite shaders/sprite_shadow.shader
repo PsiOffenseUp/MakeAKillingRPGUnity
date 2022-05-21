@@ -13,7 +13,10 @@ Shader "Unlit/sprite_shadow"
         Tags { 
         "RenderType"="Transparent" 
         "Queue" = "Transparent"
+        "LightMode" = "ForwardBase"
+        "ForceNoShadowCasting" = "False"
         }
+        //Cull Back
         Blend SrcAlpha OneMinusSrcAlpha
         LOD 100
 
@@ -22,8 +25,10 @@ Shader "Unlit/sprite_shadow"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma multi_compile_fwdbase
 
             #include "UnityCG.cginc"
+            #include "AutoLight.cginc"
 
             struct appdata
             {
@@ -36,7 +41,7 @@ Shader "Unlit/sprite_shadow"
             {
                 float2 uv : TEXCOORD0;
                 float4 vertex : SV_POSITION;
-                float lightDist : TEXCOORD1;
+                LIGHTING_COORDS(0, 1)
             };
 
             sampler2D _MainTex;
@@ -62,6 +67,7 @@ Shader "Unlit/sprite_shadow"
                 o.vertex = UnityObjectToClipPos(v.vertex);
 
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+                //TRANSFER_VERTEX_TO_FRAGMENT(o);
 
                 return o;
             }
@@ -73,6 +79,7 @@ Shader "Unlit/sprite_shadow"
                 // sample the texture
                 fixed4 col = tex2D(_MainTex, i.uv);
                 fixed alpha = col.a; //Preserve original alpha
+                float atten = LIGHT_ATTENUATION(i);
 
                 if (colorsEqual(col, _MaskColor)) //Replace the masked outline with the desired color
                     col = _OutlineColor;
@@ -80,9 +87,11 @@ Shader "Unlit/sprite_shadow"
                 col = lerp(_ShadowColor, col, saturate(i.uv.y + SHADING_EFFECT_OFFSET));
                 col.a = alpha;
 
+                //col = fixed4(atten, 0, 0, 1);
+
                 return col;
             }
             ENDCG
         }
-    }
+    } Fallback "VertexLit"
 }

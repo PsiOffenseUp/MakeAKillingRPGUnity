@@ -52,4 +52,6 @@ public class TimeAffectedObject : Object
     }
 
     #endregion
+
+    protected override void OnLanding() { }
 }

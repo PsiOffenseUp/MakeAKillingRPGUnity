@@ -34,6 +34,9 @@ public class GameplayManager : MonoBehaviour
 	public static bool paused { get; private set; }
 	public static double gameTimer { get; private set; } //Overall game time
 
+	//Collision variables
+	public static int collisionLayer { get; private set; }
+
 	//Constants
 	const int maxFrameRate = 60;
 
@@ -59,6 +62,7 @@ public class GameplayManager : MonoBehaviour
 			debugManager = GetComponent<DebugManager>();
 			clock = GetComponent<Clock>();
 			gameplayManager = this;
+			collisionLayer = LayerMask.GetMask("Collision");
 
 			DontDestroyOnLoad(this.gameObject); //Have the GameplayManager persist across scenes
 

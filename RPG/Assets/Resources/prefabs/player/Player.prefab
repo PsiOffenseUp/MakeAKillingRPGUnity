@@ -177,11 +177,48 @@ MonoBehaviour:
       resourcePath: test/walk_d
       loops: 1
       speed: 7
+    - name: air_u
+      resourcePath: test/air_u
+      loops: 1
+      speed: 7
+    - name: air_d
+      resourcePath: test/air_d
+      loops: 1
+      speed: 7
+    - name: air_r
+      resourcePath: test/air_r
+      loops: 1
+      speed: 7
+    - name: air_l
+      resourcePath: test/air_l
+      loops: 1
+      speed: 7
+    - name: jump_u
+      resourcePath: test/walk_d
+      loops: 1
+      speed: 7
+    - name: jump_d
+      resourcePath: test/walk_d
+      loops: 1
+      speed: 7
+    - name: jump_r
+      resourcePath: test/walk_d
+      loops: 1
+      speed: 7
+    - name: jump_l
+      resourcePath: test/walk_d
+      loops: 1
+      speed: 7
     spriteRenderer: {fileID: 6194829863069017241}
     playAnimation: 1
     material: {fileID: 0}
+  effectDict:
+    effects:
+    - name: smoke_landing
+      resourcePath: test/landing_smoke
   rBody: {fileID: 8030187762896424170}
   moveSpeed: 7
+  jumpSpeed: 6
 --- !u!136 &8030187762896424173
 CapsuleCollider:
   m_ObjectHideFlags: 0

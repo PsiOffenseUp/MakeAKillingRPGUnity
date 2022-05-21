@@ -4,17 +4,16 @@ using UnityEngine;
 
 public class PlayerController : TimeAffectedObject
 {
-    //Used to figure out which direction the player is facing for animations
-    public enum Direction { LEFT, RIGHT, BACK, FORWARD}
-    Direction direction = Direction.RIGHT;
-
     [SerializeField] Rigidbody rBody;
-    [SerializeField] float moveSpeed = 0.05f;
+    [SerializeField] float moveSpeed = 5.5f;
+    [SerializeField] float jumpSpeed = 4.0f;
     Vector3 hSpeed, speed;
     Vector2 controllerMovement;
     public static Vector3 cameraForwardProjected; //Used for sprite facing calculations
+
     float horizontalDot; //Dot product between the non-vertical components of moving and the camera
-    const float horizontalMovePadding = 0.3f; //Used to make animation smoother
+    const float horizontalMovePadding = 0.5f; //Used to make animation smoother
+
     protected override void Awake()
     {
         GameplayManager.SetPlayer(this.gameObject); //Set a static reference to the player
@@ -44,11 +43,33 @@ public class PlayerController : TimeAffectedObject
         horizontalDot = Vector3.Dot(hSpeed, cameraForwardProjected);
         */
 
-        speed = hSpeed; //For now, don't do a vertical component DEBUG
+        speed = hSpeed; //Set the horizontal component of the speed
 
         //TODO Handle vertical components
+        if (isGrounded && ControlManager.JumpPressed())
+        {
+            speed.y = jumpSpeed;
+            //If we jumped, update the animation
+            switch(direction)
+            {
+                case Direction.LEFT:
+                    animationHandler.ChangeAnimation("air_l");
+                    break;
+                case Direction.RIGHT:
+                    animationHandler.ChangeAnimation("air_r");
+                    break;
+                case Direction.BACK:
+                    animationHandler.ChangeAnimation("air_u");
+                    break;
+                case Direction.FORWARD:
+                    animationHandler.ChangeAnimation("air_d");
+                    break;
+            }
+        }
+        else
+            speed.y = rBody.velocity.y;
 
-        rBody.velocity = speed; //Set the speed to what we calculated
+        rBody.velocity = speed;
 
         //Figure out the sprite to display
         if (controllerMovement.x != 0.0f || controllerMovement.y != 0.0f) //If the player is inputting something, update the direction
@@ -60,15 +81,15 @@ public class PlayerController : TimeAffectedObject
                     if (direction != Direction.LEFT) //If not already considered facing left, update
                     {
                         direction = Direction.LEFT;
-                        animationHandler.ChangeAnimation("walk_l");
+                        animationHandler.ChangeAnimation(isGrounded ? "walk_l" : "air_l");
                     }
                 }
                 else //Moving right
                 {
-                    if (direction != Direction.RIGHT) //If not already considered facing left, update
+                    if (direction != Direction.RIGHT) //If not already considered facing right, update
                     {
                         direction = Direction.RIGHT;
-                        animationHandler.ChangeAnimation("walk_r");
+                        animationHandler.ChangeAnimation(isGrounded ? "walk_r" : "air_r");
                     }
                 }
             }
@@ -76,18 +97,18 @@ public class PlayerController : TimeAffectedObject
             {
                 if(controllerMovement.y > 0) //Walking away from camera
                 {
-                    if (direction != Direction.BACK) //If not already considered facing left, update
+                    if (direction != Direction.BACK) //If not already considered facing back, update
                     {
                         direction = Direction.BACK;
-                        animationHandler.ChangeAnimation("walk_u");
+                        animationHandler.ChangeAnimation(isGrounded ? "walk_u" : "air_u");
                     }
                 }
                 else
                 {
-                    if (direction != Direction.FORWARD) //If not already considered facing left, update
+                    if (direction != Direction.FORWARD) //If not already considered facing forward, update
                     {
                         direction = Direction.FORWARD;
-                        animationHandler.ChangeAnimation("walk_d");
+                        animationHandler.ChangeAnimation(isGrounded ? "walk_d" : "air_d");
                     }
                 }
             }
@@ -157,5 +178,31 @@ public class PlayerController : TimeAffectedObject
     public Direction GetDirection() { return direction; }
     public STATE GetState() { return currentState; }
     public ACTION GetAction() { return currentAction; }
+    #endregion
+
+    #region Other Events
+    protected override void OnLanding()
+    {
+        //Update the animation on landing
+        switch (direction)
+        {
+            case Direction.LEFT:
+                animationHandler.ChangeAnimation((controllerMovement.x != 0.0f || controllerMovement.y != 0.0f) ? "walk_l" : "idle_l");
+                break;
+            case Direction.RIGHT:
+                animationHandler.ChangeAnimation((controllerMovement.x != 0.0f || controllerMovement.y != 0.0f) ? "walk_r" : "idle_r");
+                break;
+            case Direction.BACK:
+                animationHandler.ChangeAnimation((controllerMovement.x != 0.0f || controllerMovement.y != 0.0f) ? "walk_u" : "idle_u");
+                break;
+            case Direction.FORWARD:
+                animationHandler.ChangeAnimation((controllerMovement.x != 0.0f || controllerMovement.y != 0.0f) ? "walk_d" : "idle_d");
+                break;
+        }
+
+        effectDict.MakeEffect("smoke_landing", transform.position + Vector3.down * raycastOffset, transform.rotation);
+
+        base.OnLanding();
+    }
     #endregion
 }

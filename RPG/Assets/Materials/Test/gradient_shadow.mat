@@ -79,8 +79,8 @@ Material:
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
-    - _GradientColor: {r: 1, g: 0.2783019, b: 0.74092263, a: 1}
+    - _GradientColor: {r: 0.9245283, g: 0, b: 0.52955586, a: 1}
     - _MaskColor: {r: 0, g: 0, b: 0, a: 1}
     - _OutlineColor: {r: 0, g: 0, b: 0, a: 1}
-    - _ShadowColor: {r: 0, g: 0, b: 0, a: 1}
+    - _ShadowColor: {r: 0.037540786, g: 0.031283375, b: 0.1792453, a: 1}
   m_BuildTextureStacks: []
