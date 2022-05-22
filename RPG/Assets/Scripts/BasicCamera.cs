@@ -19,7 +19,7 @@ public class BasicCamera : MonoBehaviour
     {
         //If there is no focus by the first frame, set this camera to focus on the player
         if (focus == null)
-            focus = GameplayManager.player;
+            focus = GameplayManager.player.gameObject;
     }
 
     protected virtual void Update()

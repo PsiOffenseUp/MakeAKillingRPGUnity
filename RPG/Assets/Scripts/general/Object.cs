@@ -95,8 +95,8 @@ public abstract class Object : MonoBehaviour
 	#endregion
 
 	#region ***************** State and Action methods *****************
-	public enum ACTION { IDLE }
-	public enum STATE { IDLE, MOVING }
+	public enum ACTION { IDLE, AERIAL }
+	public enum STATE { IDLE, MOVING, TALKING }
 
 	protected ACTION currentAction { get; private set; }
 	protected ACTION previousAction { get; private set; }

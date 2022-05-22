@@ -13,7 +13,7 @@ public class GameplayManager : MonoBehaviour
 	//Necessary references
 
 	//Important static references
-	public static GameObject player { get; private set; }
+	public static PlayerController player { get; private set; }
 	public static Camera mainCamera { get; private set; }
 
 	//Other managers
@@ -163,7 +163,7 @@ public class GameplayManager : MonoBehaviour
 	#endregion
 
 	#region Static Methods
-	public static void SetPlayer(GameObject player) { GameplayManager.player = player; }
+	public static void SetPlayer(PlayerController player) { GameplayManager.player = player; }
 	public static void SetMainCamera(Camera camera) 
 	{ 
 		mainCamera = camera;
