@@ -12,13 +12,15 @@ public abstract class Object : MonoBehaviour
 	protected Direction direction = Direction.RIGHT;
 
 	public Vector3 initialPosition { get; private set; }
+	public Vector3 forwardVector { get; protected set; } //Separate forward vector to avoid weird transform stuff
+	public Vector3 rightVector { get; protected set; } //Separate right vector to avoid weird transform stuff
 
 	static Dictionary<GameObject, Object> objectDict = new Dictionary<GameObject, Object>();
 	[SerializeField] protected AnimationHandler animationHandler;
 	[SerializeField] protected EffectDictionary effectDict;
 
 	//Collisions / checking the ground
-	protected CapsuleCollider collider { get; private set; }
+	protected CapsuleCollider solidCollider { get; private set; }
 	protected float raycastOffset { get; private set; }
 	protected const float raycastDist = 0.1f;
 	protected bool isGrounded { get; private set;}
@@ -36,9 +38,11 @@ public abstract class Object : MonoBehaviour
 		animationHandler.Initialize(); //Initialize the animator
 		effectDict.Initialize(); //Initialize the effects dictionary
 
-		collider = GetComponent<CapsuleCollider>();
-		raycastOffset = collider.height - 0.03f;
+		solidCollider = GetComponent<CapsuleCollider>();
+		raycastOffset = solidCollider.height - 0.03f;
 		isGrounded = false;
+		forwardVector = transform.forward;
+		forwardVector.Normalize();
 	}
 
 	protected virtual void Update()
@@ -98,11 +102,11 @@ public abstract class Object : MonoBehaviour
 	public enum ACTION { IDLE, AERIAL }
 	public enum STATE { IDLE, MOVING, TALKING }
 
-	protected ACTION currentAction { get; private set; }
+	public ACTION currentAction { get; private set; }
 	protected ACTION previousAction { get; private set; }
 	private ACTION targetAction;
 	protected STATE previousState { get; private set; }
-	protected STATE currentState { get; private set; }
+	public STATE currentState { get; private set; }
 	private STATE targetState;
 
 	protected uint actionTransitionTimer { get; private set; } //How many frames are left to spend transitioning

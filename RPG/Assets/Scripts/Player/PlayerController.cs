@@ -188,6 +188,10 @@ public class PlayerController : TimeAffectedObject
         //Figure out the sprite to display
         if (controllerMovement.x != 0.0f || controllerMovement.y != 0.0f) //If the player is inputting something, update the direction
         {
+            forwardVector = hSpeed;
+            forwardVector.Normalize(); //Normalize the forward vector
+            rightVector = Quaternion.Euler(0, -90, 0) * forwardVector;
+
             if (Mathf.Abs(controllerMovement.x) > Mathf.Abs(controllerMovement.y) - horizontalMovePadding) //Figure out whether horizontal or forward magnitude is bigger
             {
                 if (controllerMovement.x < 0) //Moving left

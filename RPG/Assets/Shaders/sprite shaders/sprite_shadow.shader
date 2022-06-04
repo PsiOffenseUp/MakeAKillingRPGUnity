@@ -51,7 +51,7 @@ Shader "Unlit/sprite_shadow"
             float4 _OutlineColor;
             float4 _MaskColor;
 
-            #define COLOR_EQUAL_THRESHOLD 0.02f
+            #define COLOR_EQUAL_THRESHOLD 0.08f
 
             bool colorsEqual(float4 color1, float4 color2)
             {
@@ -81,8 +81,8 @@ Shader "Unlit/sprite_shadow"
                 fixed alpha = col.a; //Preserve original alpha
                 float atten = LIGHT_ATTENUATION(i);
 
-                if (colorsEqual(col, _MaskColor)) //Replace the masked outline with the desired color
-                    col = _OutlineColor;
+               // if (colorsEqual(col, _MaskColor)) //Replace the masked outline with the desired color
+                 //   col = _OutlineColor;
 
                 col = lerp(_ShadowColor, col, saturate(i.uv.y + SHADING_EFFECT_OFFSET));
                 col.a = alpha;
