@@ -23,10 +23,24 @@ public abstract class TextEffect
 	protected TextEffect(TextEffectType type, int start, int end) { this.type = type; this.span = new TimeSpan(start, end); }
 }
 
+public class WaveEffect : TextEffect
+{
+	public float waviness { get; private set; }
+	public WaveEffect(int start, int end, float waviness) : base(TextEffectType.WAVY, start, end)
+    {
+		this.waviness = waviness;
+    }
+}
+
+public class SpinEffect : TextEffect
+{
+	public SpinEffect(int start, int end) : base(TextEffectType.SPIN, start, end) { }
+}
+
 #endregion
 
 #region Triggers
-public enum TriggerType { WAIT, CHANGE_SPEED, MAX }
+public enum TriggerType { WAIT, CHANGE_SPEED, RESET_SPEED, MAX }
 //Base class for text effects that are events and activate at one static time
 public abstract class TextTrigger
 {
@@ -42,11 +56,24 @@ public class WaitEffect : TextTrigger
 	public WaitEffect() : base(TriggerType.WAIT) { this.waitTime = 1.0f; }
 	public WaitEffect(float wait_time) : base(TriggerType.WAIT) { this.waitTime = wait_time; }
 }
+
+public class ChangeSpeedTrigger : TextTrigger
+{
+	public float newSpeed { get; private set; }
+
+	public ChangeSpeedTrigger() : base (TriggerType.CHANGE_SPEED) { this.newSpeed = 4.0f; }
+	public ChangeSpeedTrigger(float new_speed) : base (TriggerType.CHANGE_SPEED) { this.newSpeed = new_speed; }
+}
+
+public class ResetSpeedTrigger : TextTrigger
+{
+	public ResetSpeedTrigger() : base(TriggerType.RESET_SPEED) { }
+}
 #endregion
 
 public class TextEffectsMetadata
 {
-	TextEffect[][] textEffects; //An array that holds lists of the times at which effects are active
+	TextEffect[,] textEffects; //An array that holds lists of the times at which effects are active
 	Dictionary<TriggerType, Dictionary<int, TextTrigger>> textTriggers; //TODO Rewrite this for faster lookup with [][]
 	readonly int maxEffects;
 	readonly int maxTriggers;
@@ -54,29 +81,55 @@ public class TextEffectsMetadata
 	/// <summary> Sets all the new effects from the new text mesh pro object </summary>
 	public void SetNewEffects(TMP_TextInfo text_info)
     {
-		int i;
+		int i, j, startChar, endChar;
 		string linkId;
-		float tempFloat;
-		int tempInt;
+		float tempFloat; //For reading float values from tags
+		int tempInt, castEffect;
 
 		//Set all of the Lists to be empty
 		//TODO: Finish clearing textEffects
 		for (i = 0; i < maxTriggers; i++)
 			textTriggers[(TriggerType)i].Clear();
 
+		//Reallocate the text effects array
+		textEffects = new TextEffect[maxEffects, text_info.characterCount];
+
 		//Go through all of the custom text effects from our text info and add them to our effect and trigger lists
 		for(i = 0; i < text_info.linkCount; i++)
         {
 			linkId = text_info.linkInfo[i].GetLinkID();
-			if(linkId.StartsWith("wait")) //Wait before typing
+			startChar = text_info.linkInfo[i].linkTextfirstCharacterIndex;
+			endChar = startChar + text_info.linkInfo[i].linkTextLength;
+			if (linkId.StartsWith("wait")) //Wait before typing
             {
 				float.TryParse(linkId.Split('_')[1], out tempFloat);
-				textTriggers[TriggerType.WAIT][text_info.linkInfo[i].linkTextfirstCharacterIndex] = new WaitEffect(tempFloat);
+				textTriggers[TriggerType.WAIT][startChar] = new WaitEffect(tempFloat);
             }
 			else if(linkId.StartsWith("chspd")) //Change speed
             {
+				float.TryParse(linkId.Split('_')[1], out tempFloat);
+				textTriggers[TriggerType.CHANGE_SPEED][startChar] = new ChangeSpeedTrigger(tempFloat);
+			}
+			else if(linkId.StartsWith("resspd"))
+            {
+				textTriggers[TriggerType.RESET_SPEED][startChar] = new ResetSpeedTrigger();
+			}
+			else if (linkId.StartsWith("wave")) //Wave effect
+            {
+				float.TryParse(linkId.Split('_')[1], out tempFloat);
+				WaveEffect we = new WaveEffect(startChar, endChar, tempFloat);
+				castEffect = (int)TextEffectType.WAVY;
+				for (j = startChar; j < endChar; j++)
+					textEffects[castEffect, j] = we;
 
-            }
+			}
+			else if(linkId.StartsWith("spin"))
+            {
+				SpinEffect se = new SpinEffect(startChar, endChar);
+				castEffect = (int)TextEffectType.SPIN;
+				for (j = startChar; j < endChar; j++)
+					textEffects[castEffect, j] = se;
+			}
         }
     }
 
@@ -88,7 +141,7 @@ public class TextEffectsMetadata
 	/// <returns></returns>
 	public TextEffect GetEffect(TextEffectType type, int index)
     {
-		return textEffects[(int)type][index];
+		return textEffects[(int)type, index];
     }
 
 	public TextTrigger GetTrigger(TriggerType type, int index)
@@ -129,8 +182,12 @@ public class DialogueManager : MonoBehaviour
 	bool isTyping; //Bools for whether the dialogue is being displayed, the text is typing
 	BoogalooGame.Dialogue currentDialogue;
 	TextEffectsMetadata tEM;
+	NPC talkNPC;
 
-	const float defaultSpeed = 0.07f; //How many seconds should be between typing letters by default
+	//########### Text effect constants ###########
+	const float defaultSpeed = 0.058f; //How many seconds should be between typing letters by default
+	const float timeMult = 2.6f;
+	readonly Vector2 waveAmp = new Vector2(0.05f, 2.2f); //Base amplitude for x and y on wavy effect
 
     //--------------------------Methods-----------------------
     #region Unity overrides
@@ -152,7 +209,7 @@ public class DialogueManager : MonoBehaviour
     {
 		if (isActive)
 		{
-			if (ControlManager.JumpPressed()) //If the confirm button is pressed
+			if (ControlManager.AttackPressed()) //If the confirm button is pressed
 			{
 				if (isTyping) //If button is pressed while text is typing, skip to the end of the text
 				{
@@ -165,8 +222,6 @@ public class DialogueManager : MonoBehaviour
 				{
 					try { GetNextDialogue(); } 
 					catch { currentDialogue = null; } //If nothing is in the queue, set the current dialogue to null
-
-					isTyping = true;
 				}
 			}
 			else if (isTyping) //Else type the text normally
@@ -174,15 +229,20 @@ public class DialogueManager : MonoBehaviour
 				currentTime += Time.deltaTime;
 
 				//If we've overshot the time for the target character, advance characters until we reach it
-				while (targetTime < currentTime)
+				while (targetTime < currentTime && currentCharacter < bodyText.textInfo.characterCount)
                 {
 					currentCharacter++;
 					FindNextTargetTime();
 				}
 
+				//If the text was advanced by some amount, play a sound effect
+				if (bodyText.maxVisibleCharacters != currentCharacter)
+					GameplayManager.audioPlayer.PlaySFX(talkingSoundEffect);
+
 				bodyText.maxVisibleCharacters = currentCharacter;
-				isTyping = currentCharacter <= bodyText.textInfo.characterCount; //Update whether we are typing or not
+				isTyping = currentCharacter < bodyText.textInfo.characterCount; //Update whether we are typing or not
 			}
+			ApplyTextEffects(); //Apply any active text effects
 		}
 
 		if (currentDialogue == null && isActive)
@@ -210,6 +270,8 @@ public class DialogueManager : MonoBehaviour
 		textBoxParent.SetActive(false);
 		currentDialogue = null;
 		GameplayManager.Unpause(); //Unpause the game when we are out of dialogue
+		GameplayManager.player.EndTalk(); //Let the player know dialogue is done
+		FinishTalkingNPC(); //Let the NPC know the talk is done
 	}
 	public void EnqueueDialogue(BoogalooGame.Dialogue dialogue) 
 	{ 
@@ -227,6 +289,7 @@ public class DialogueManager : MonoBehaviour
 	}
 	public void ChangeSpeed(float new_speed) { invSpeed = 1.0f / new_speed; }
 	public void ChangeSpeed(int new_speed) { invSpeed = 1.0f / new_speed; }
+	public void ResetSpeed() { invSpeed = defaultSpeed; }
 	#endregion
 
 	public void GetNextDialogue()
@@ -240,34 +303,121 @@ public class DialogueManager : MonoBehaviour
 			bodyText.maxVisibleCharacters = 0;
 			bodyText.ForceMeshUpdate(); //Update the fields based on the new text
 			tEM.SetNewEffects(bodyText.textInfo);
-			targetTime = 0.0f;
+			isTyping = true;
+			currentCharacter = 0;
+			currentTime = targetTime = 0.0f;
+			ResetSpeed(); //Reset talking speed
 			FindNextTargetTime();
 		}
-		currentCharacter = 0;
 	}
 
 	public void FindNextTargetTime()
     {
+		TextTrigger tempTrigger;
+
+		//Check if the speed needs to be updated
+		tempTrigger = tEM.GetTrigger(TriggerType.CHANGE_SPEED, currentCharacter);
+		if (tempTrigger != null)
+			ChangeSpeed(((ChangeSpeedTrigger)tempTrigger).newSpeed);
+		else //Check for speed reset
+        {
+			tempTrigger = tEM.GetTrigger(TriggerType.RESET_SPEED, currentCharacter);
+			if (tempTrigger != null)
+				ResetSpeed();
+		}
+
 		targetTime += invSpeed; //By default, time between characters will be invSpeed away
 
 		//Check if there is a pause/wait at the current character
+		tempTrigger = tEM.GetTrigger(TriggerType.WAIT, currentCharacter);
+		if (tempTrigger != null)
+			targetTime += ((WaitEffect)tempTrigger).waitTime;
 
-		WaitEffect waitEffect = (WaitEffect)tEM.GetTrigger(TriggerType.WAIT, currentCharacter);
-		if (waitEffect != null)
-			targetTime += waitEffect.waitTime;
     }
 
 	#region Text Effects
 
-	void DisplayText()
+	void ApplyTextEffects()
     {
 		bodyText.ForceMeshUpdate(); //Force the text mesh to be updated for effects
+		Mesh mesh = bodyText.mesh;
+		Vector3[] verts = mesh.vertices;
 		TMP_TextInfo textInfo = bodyText.textInfo;
+		TMP_CharacterInfo charInfo;
+
+		TextEffect tempEffect; //Temp reference to relevant effect
+		float tempFloat; //Temp variables to grab values without needing to cast as often
+		int tempInt, startVertIndex;
+		Vector3 tempVector;
+
+		//Check for text effects and apply up to the current character
+		for (int i = 0; i < currentCharacter && i < textInfo.characterCount; i++)
+        {
+			charInfo = textInfo.characterInfo[i];
+
+			//TODO: Find out why the first char's vert index is randomly in the middle? This is a jank fix
+			if (charInfo.vertexIndex == 0 && i != 0) 
+				continue;
+
+			//****** Check what effects apply to each character ******
+
+			//Wave effect
+			tempEffect = tEM.GetEffect(TextEffectType.WAVY, i);
+			if (tempEffect != null)
+            {
+				tempFloat = ((WaveEffect)tempEffect).waviness;
+				tempVector = tempFloat*waveAmp; //Get waviness in both directions
+				startVertIndex = charInfo.vertexIndex;
+
+				//Debug.Log("i =" + i + "Char# " + charInfo.index + " with Start vert index = " + startVertIndex);
+				//Apply to all 4 vertices
+				tempFloat = Mathf.Sin(timeMult * Time.time + mesh.vertices[startVertIndex].x);
+				verts[startVertIndex] += new Vector3(tempVector.x * tempFloat, tempVector.y * tempFloat, 0);
+
+				tempFloat = Mathf.Sin(timeMult * Time.time + mesh.vertices[startVertIndex + 1].x);
+				verts[startVertIndex + 1] += new Vector3(tempVector.x * tempFloat, tempVector.y * tempFloat, 0);
+
+				tempFloat = Mathf.Sin(timeMult * Time.time + mesh.vertices[startVertIndex + 2].x);
+				verts[startVertIndex + 2] += new Vector3(tempVector.x * tempFloat, tempVector.y * tempFloat, 0);
+
+				tempFloat = Mathf.Sin(timeMult * Time.time + mesh.vertices[startVertIndex + 3].x);
+				verts[startVertIndex + 3] += new Vector3(tempVector.x * tempFloat, tempVector.y * tempFloat, 0);
+			}
+
+			//Spin effect
+			tempEffect = tEM.GetEffect(TextEffectType.SPIN, i);
+			if (tempEffect != null)
+			{
+				startVertIndex = charInfo.vertexIndex;
+				tempVector = new Vector3(5.8f*Mathf.Cos(timeMult *Time.time + mesh.vertices[startVertIndex].x),
+					7.0f*Mathf.Sin(timeMult * Time.time + mesh.vertices[startVertIndex].x), 0);
+
+				verts[startVertIndex] += tempVector;
+				verts[startVertIndex + 1] += tempVector;
+				verts[startVertIndex + 2] += tempVector;
+				verts[startVertIndex + 3] += tempVector;
+			}
+		}
+
+		//Update the mesh and vertices
+		mesh.vertices = verts;
+		bodyText.canvasRenderer.SetMesh(mesh);
     }
 
+	#endregion
 
+	#region Talking Events
 
+	public void SetTalkingNPC(NPC active_npc)
+    {
+		talkNPC = active_npc;
+    }
 
-    #endregion
+	void FinishTalkingNPC()
+    {
+		talkNPC.OnEndTalk();
+    }
+
+	#endregion
 
 }

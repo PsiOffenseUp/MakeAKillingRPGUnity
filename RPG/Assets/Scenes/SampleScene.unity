@@ -1074,7 +1074,7 @@ MonoBehaviour:
     - name: idle_r
       resourcePath: test/idle
       loops: 1
-      speed: 2
+      speed: 4
     spriteRenderer: {fileID: 1956991639}
     playAnimation: 1
   effectDict:

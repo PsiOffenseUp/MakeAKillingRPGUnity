@@ -118,12 +118,24 @@ public abstract class Object : MonoBehaviour
 
 	protected virtual void OnActionTransition() { }
 	protected virtual void OnStateTransition() { }
-	protected void TransitionState(STATE target_state, uint transition_time = 0)
+	protected void TransitionState(STATE target_state, uint transition_time)
 	{
 		//currentState = targetState; //Transition to any pending state
 		targetState = target_state;
 		stateTransitionTimer = transition_time;
 		transitioningState = true;
+	}
+
+	protected void TransitionState(STATE target_state)
+    {
+		//Immediately transition if there is no time
+		targetState = target_state;
+		stateTransitionTimer = 0;
+		stateTimer = 0;
+		previousState = currentState; //Record the state we were just in
+		currentState = targetState; //Update to the target state
+		transitioningState = false; //Stop transitioning
+		OnStateTransition(); //Call the state transition event
 	}
 
 	protected void TransitionAction(ACTION target_action, uint transition_time = 0)

@@ -211,11 +211,12 @@ MonoBehaviour:
       speed: 7
     spriteRenderer: {fileID: 6194829863069017241}
     playAnimation: 1
-    material: {fileID: 0}
   effectDict:
     effects:
     - name: smoke_landing
-      resourcePath: test/landing_smoke
+      resourcePath: general/landing_smoke
+    - name: walk_smoke
+      resourcePath: general/one_smoke
   rBody: {fileID: 8030187762896424170}
   moveSpeed: 7
   jumpSpeed: 6

@@ -14,6 +14,9 @@ public class PlayerController : TimeAffectedObject
     float horizontalDot; //Dot product between the non-vertical components of moving and the camera
     const float horizontalMovePadding = 0.5f; //Used to make animation smoother
 
+    //Animation constants
+    const int smokeFreq = 20;
+
     protected override void Awake()
     {
         GameplayManager.SetPlayer(this); //Set a static reference to the player
@@ -233,6 +236,9 @@ public class PlayerController : TimeAffectedObject
 
             if (currentState == STATE.IDLE)
                 TransitionState(STATE.MOVING);
+
+            if (isGrounded && stateTimer % smokeFreq == 0)
+                effectDict.MakeEffect("walk_smoke", transform.position + Vector3.down * raycastOffset - 0.06f*forwardVector);
         }
         else if (currentState == STATE.MOVING) //If no inputs and considered moving, switch to IDLE
             TransitionState(STATE.IDLE);

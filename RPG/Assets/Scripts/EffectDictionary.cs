@@ -15,7 +15,7 @@ public class EffectDictionary
     Dictionary<string, ParticleSystem> effectDictionary;
     [SerializeField] EffectMetadata[] effects;
 
-    static readonly string effectsRoot = "prefabs/effects/";
+    static readonly string effectsRoot = "effects/";
 
     public void Initialize()
     {

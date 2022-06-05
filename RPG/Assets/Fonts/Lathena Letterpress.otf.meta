@@ -1,0 +1,22 @@
+fileFormatVersion: 2
+guid: 39e8cb730db312e478c5eb72733bb31f
+TrueTypeFontImporter:
+  externalObjects: {}
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontNames:
+  - Lathena
+  fallbackFontReferences:
+  - {fileID: 12800000, guid: 560140c61ff1b6c4eab5cf3622d78a33, type: 3}
+  customCharacters: 
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  useLegacyBoundsCalculation: 0
+  shouldRoundAdvanceValue: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
