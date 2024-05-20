@@ -1,0 +1,4 @@
+<sn>Protagonist</sn><cc0>
+Hey...<wa0.5><co#db21d2><si140%><sp>Dude!</sp></si></co><wa1.2><wv4>\nWhat's up?</wv><ed>
+<sn>Test NPC</sn><cc1>
+Nothing much.<wa0.8> Just...<wa4.9> Waiting around<ed>

@@ -1,0 +1,10 @@
+﻿name,"type (0 = normal, 1 = usable, 2 = soul, 3 = Key)",buy price,sell price,rng weight,sprite path,is buyable,is collectible,description
+Test Item,0,80,20,2,test_item,1,0,This is a test item
+Coconut,0,15,10,3,coconut,1,0,Delicious but sadly too hard to open
+Sellamatron,1,100,0,20,test_item,1,1,Allows you to sell anything on the fly. Just point and make that sweet money!
+Test Soul,2,0,100,0,test_item,1,1,A soul
+Bag of Souls,3,0,0,0,test_item,0,0,Bag of Souls
+Coconut 2,0,15,10,5,coconut,1,0,Delicious but sadly too hard to open
+Coconut 3,0,15,10,9,coconut,1,0,Delicious but sadly too hard to open
+Carrot,0,15,10,10,Carrot,1,1,Crunchy
+Mewmerang,1,80,0,25,test_item,1,1,Throw it
